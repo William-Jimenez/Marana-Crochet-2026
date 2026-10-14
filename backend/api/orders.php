@@ -21,12 +21,12 @@ function formatOrderRow($row, $items) {
         'shippingAddress' => [
             'address' => $row['direccion_envio'],
             'city'    => $row['ciudad_envio'],
-            'notes'   => $row['notas_envio'] ?: undefined,
+            'notes'   => $row['notas_envio'] ?: null,
         ],
         'items'         => $items,
         'subtotal'      => (float)$row['subtotal'],
         'discount'      => (float)$row['descuento'],
-        'couponCode'    => $row['cupon_codigo'] ?: undefined,
+        'couponCode'    => $row['cupon_codigo'] ?: null,
         'shippingCost'  => (float)$row['costo_envio'],
         'total'         => (float)$row['total'],
         'paymentMethod' => $row['metodo_pago'],
@@ -37,7 +37,7 @@ function formatOrderRow($row, $items) {
             'receiptNumber'  => $row['numero_comprobante'] ?: '',
             'imageUrl'       => $row['imagen_comprobante'] ?: '',
             'submittedAt'    => $row['fecha_comprobante'] ?: $row['created_at'],
-            'rejectedReason' => $row['motivo_rechazo'] ?: undefined
+            'rejectedReason' => $row['motivo_rechazo'] ?: null
         ] : null,
         'isReviewed'    => (bool)$row['es_calificado'],
         'createdAt'     => $row['created_at'],

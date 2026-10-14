@@ -22,11 +22,11 @@ function formatQuoteRow($row) {
         'description'     => $row['descripcion'],
         'dimensions'      => $row['dimensiones'],
         'preferredColors' => $row['colores_preferidos'],
-        'referenceImage'  => $row['imagen_referencia'] ?: undefined,
+        'referenceImage'  => $row['imagen_referencia'] ?: null,
         'status'          => $row['estado'],
-        'quotedPrice'     => $row['precio_cotizado'] !== null ? (float)$row['precio_cotizado'] : undefined,
-        'estimatedDays'   => $row['dias_estimados'] !== null ? (int)$row['dias_estimados'] : undefined,
-        'adminNote'       => $row['nota_admin'] ?: undefined,
+        'quotedPrice'     => $row['precio_cotizado'] !== null ? (float)$row['precio_cotizado'] : null,
+        'estimatedDays'   => $row['dias_estimados'] !== null ? (int)$row['dias_estimados'] : null,
+        'adminNote'       => $row['nota_admin'] ?: null,
         'createdAt'       => $row['created_at']
     ];
 }
