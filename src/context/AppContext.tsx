@@ -22,6 +22,7 @@ import {
   MOCK_USERS,
   MARANA_ASSETS,
 } from '../data/mockData';
+import { apiService } from '../services/api';
 
 interface AppContextType {
   // Role & Auth
@@ -126,6 +127,11 @@ interface AppContextType {
   setIsQuoteModalOpen: (open: boolean) => void;
   checkoutSuccessOrder: Order | null;
   setCheckoutSuccessOrder: (order: Order | null) => void;
+
+  // MySQL / XAMPP / PHP Database Status
+  dbConnected: boolean | null;
+  dbInfo: { version?: string; database?: string; host?: string; stats?: any } | null;
+  refreshDbData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -137,6 +143,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+
+  // MySQL Connection & Sync State
+  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+  const [dbInfo, setDbInfo] = useState<{ version?: string; database?: string; host?: string; stats?: any } | null>(null);
 
   // Catalog State
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
@@ -287,6 +297,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       type: 'system',
     },
   ]);
+
+  // Sync with MySQL / PHP Backend
+  const refreshDbData = async () => {
+    try {
+      const statusRes = await apiService.getStatus();
+      if (statusRes.connected) {
+        setDbConnected(true);
+        setDbInfo(statusRes);
+
+        const [prodRes, ordRes, quoteRes, revRes, supRes, clsRes] = await Promise.allSettled([
+          apiService.getProducts(),
+          apiService.getOrders(),
+          apiService.getQuotes(),
+          apiService.getReviews(),
+          apiService.getSuppliers(),
+          apiService.getClasses(),
+        ]);
+
+        if (prodRes.status === 'fulfilled' && prodRes.value.data?.length) {
+          setProducts(prodRes.value.data);
+        }
+        if (ordRes.status === 'fulfilled' && ordRes.value.data?.length) {
+          setOrders(ordRes.value.data);
+        }
+        if (quoteRes.status === 'fulfilled' && quoteRes.value.data?.length) {
+          setQuotes(quoteRes.value.data);
+        }
+        if (revRes.status === 'fulfilled' && revRes.value.data?.length) {
+          setReviews(revRes.value.data);
+        }
+        if (supRes.status === 'fulfilled' && supRes.value.data?.length) {
+          setSuppliers(supRes.value.data);
+        }
+        if (clsRes.status === 'fulfilled' && clsRes.value.data?.length) {
+          setVirtualClasses(clsRes.value.data);
+        }
+      } else {
+        setDbConnected(false);
+      }
+    } catch {
+      setDbConnected(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshDbData();
+  }, []);
 
   // Role switching helpers
   const setRole = (newRole: UserRole) => {
@@ -535,6 +592,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     clearCart();
     setCheckoutSuccessOrder(newOrder);
 
+    // Sincronizar pedido con la base de datos MySQL en XAMPP
+    apiService.createOrder(newOrder).catch((e) => {
+      console.warn('Sincronización con MySQL en segundo plano falló:', e);
+    });
+
     addNotification(
       '¡Pedido Confirmado!',
       `Tu pedido #${orderId} ha sido registrado. Por favor adjunta el comprobante de pago para comenzar a tejerlo.`,
@@ -570,6 +632,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
+    // Sincronizar comprobante con MySQL
+    apiService.submitPaymentProof(orderId, proof).catch((e) => {
+      console.warn('Sincronización de comprobante con MySQL falló:', e);
+    });
+
     addNotification(
       'Comprobante Enviado',
       `El comprobante del pedido #${orderId} fue enviado y está pendiente de verificación por el taller Maraña.`,
@@ -595,6 +662,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return ord;
       })
     );
+
+    apiService.verifyPayment(orderId).catch((e) => console.warn('Sync verifyPayment error:', e));
 
     addNotification(
       '¡Pago Verificado!',
@@ -626,6 +695,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
+    apiService.rejectPayment(orderId, reason).catch((e) => console.warn('Sync rejectPayment error:', e));
+
     addNotification(
       'Comprobante de Pago Rechazado',
       `El comprobante para el pedido #${orderId} fue rechazado. Motivo: ${reason}`,
@@ -639,6 +710,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) =>
       prev.map((ord) => (ord.id === orderId ? { ...ord, orderStatus: status, updatedAt: new Date().toISOString() } : ord))
     );
+
+    apiService.updateOrderStatus(orderId, status).catch((e) => console.warn('Sync updateOrderStatus error:', e));
 
     let statusMsg = '';
     if (status === 'shipped') statusMsg = 'Tu pedido ha sido despachado y va en camino.';
@@ -662,6 +735,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setQuotes((prev) => [newQuote, ...prev]);
     setIsQuoteModalOpen(false);
 
+    apiService.createQuote(newQuote).catch((e) => console.warn('Sync quote to MySQL error:', e));
+
     addNotification(
       'Cotización Enviada',
       'Tu solicitud de diseño a medida fue recibida. Valentina revisará la viabilidad y responderá pronto.',
@@ -684,6 +759,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
+    apiService.adminQuotePrice(quoteId, price, estimatedDays, adminNote).catch((e) => console.warn('Sync quote price error:', e));
+
     addNotification(
       '¡Tu Cotización Está Lista!',
       `Maraña ha cotizado tu proyecto personalizado (#${quoteId}) por $${price.toLocaleString('es-CO')} COP.`,
@@ -695,6 +772,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setQuotes((prev) =>
       prev.map((q) => (q.id === quoteId ? { ...q, status: 'rejected', adminNote } : q))
     );
+
+    apiService.adminRejectQuote(quoteId, adminNote).catch((e) => console.warn('Sync reject quote error:', e));
 
     addNotification(
       'Cotización No Aprobada',
@@ -745,6 +824,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) => [newOrder, ...prev]);
     setQuotes((prev) => prev.map((item) => (item.id === quoteId ? { ...item, status: 'accepted' } : item)));
 
+    apiService.customerAcceptQuote(quoteId).catch((e) => console.warn('Sync accept quote error:', e));
+    apiService.createOrder(newOrder).catch((e) => console.warn('Sync accepted quote order error:', e));
+
     addNotification(
       'Cotización Aceptada',
       `Se ha creado el pedido #${orderId} para tu diseño personalizado. Ya puedes reportar el pago del 50% de anticipo.`,
@@ -792,6 +874,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setSelectedOrderForReview(null);
 
+    // Sincronizar reseña con MySQL
+    apiService.submitReview({
+      productId,
+      orderId,
+      rating,
+      comment,
+      customerName: newRev.customerName,
+      productName: newRev.productName,
+    }).catch((e) => console.warn('Sync review to MySQL error:', e));
+
     addNotification(
       '¡Gracias por tu reseña!',
       'Tu opinión ayuda a valorar el trabajo de nuestras artesanas de crochet.',
@@ -803,6 +895,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setReviews((prev) =>
       prev.map((r) => (r.id === reviewId ? { ...r, isApproved: !r.isApproved } : r))
     );
+
+    apiService.toggleReviewApproval(reviewId).catch((e) => console.warn('Sync review approval error:', e));
   };
 
   // Virtual Classes (HU-19, HU-50)
@@ -818,12 +912,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return cls;
       })
     );
+
+    apiService.toggleLessonModule(classId, moduleId).catch((e) => console.warn('Sync lesson error:', e));
   };
 
   const enrollInClass = (classId: string) => {
     setVirtualClasses((prev) =>
       prev.map((cls) => (cls.id === classId ? { ...cls, isEnrolled: true, studentsCount: cls.studentsCount + 1 } : cls))
     );
+
+    apiService.enrollInClass(classId).catch((e) => console.warn('Sync enroll error:', e));
+
     addNotification('Inscripción Exitosa', '¡Bienvenida a la clase virtual! Ya tienes acceso inmediato al contenido.', 'system');
   };
 
@@ -838,6 +937,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reviewCount: 0,
     };
     setProducts((prev) => [newProduct, ...prev]);
+
+    apiService.createProduct(newProduct).catch((e) => console.warn('Sync create product error:', e));
+
     addNotification('Producto Creado', `Se agregó "${newProduct.name}" al catálogo.`, 'system');
   };
 
@@ -845,10 +947,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProducts((prev) =>
       prev.map((p) => (p.id === productId ? { ...p, stock: Math.max(0, newStock) } : p))
     );
+
+    apiService.updateProductStock(productId, newStock).catch((e) => console.warn('Sync stock error:', e));
   };
 
   const updateProduct = (updated: Product) => {
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+
+    apiService.updateProduct(updated).catch((e) => console.warn('Sync product update error:', e));
+
     addNotification('Producto Actualizado', `"${updated.name}" ha sido guardado.`, 'system');
   };
 
@@ -858,6 +965,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `sup-${Date.now()}`,
     };
     setSuppliers((prev) => [...prev, newSup]);
+
+    apiService.createSupplier(newSup).catch((e) => console.warn('Sync supplier error:', e));
+
     addNotification('Proveedor Registrado', `Se guardó a "${newSup.name}".`, 'system');
   };
 
@@ -933,6 +1043,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsQuoteModalOpen,
         checkoutSuccessOrder,
         setCheckoutSuccessOrder,
+        dbConnected,
+        dbInfo,
+        refreshDbData,
       }}
     >
       {children}

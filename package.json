@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "server:php": "php -S 127.0.0.1:8000 -t backend",
+    "setup:db": "php backend/setup.php",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
